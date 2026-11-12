@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<title>Заказы · Алматы</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root { --bg:#0f1420; --panel:#161c2b; --card:#1d2538; --text:#e8ecf5; --muted:#8c96ad; --line:#263049; --accent:#ff7a45; }
+  body.light { --bg:#f3f5f9; --panel:#ffffff; --card:#f1f4fa; --text:#1b2233; --muted:#6b7590; --line:#e1e6f0; }
+  * { box-sizing: border-box; }
+  html, body { height:100%; margin:0; font-family:'Segoe UI',Roboto,Arial,sans-serif; font-size:13px; background:var(--bg); color:var(--text); }
+  #wrap { display:flex; height:100%; }
+  #side { width:330px; background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:16px; }
+  #map { flex:1; background:var(--bg); }
+  .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .head h1 { font-size:16px; margin:0; font-weight:600; }
+  .btn { background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:5px 10px; cursor:pointer; }
+  .kpis { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:14px; }
+  .kpi { background:var(--card); border-radius:10px; padding:10px; min-width:0; }
+  .kpi b { display:block; font-size:18px; }
+  .kpi.small b { font-size:12px; line-height:1.25; margin-top:2px; overflow:hidden; text-overflow:ellipsis; }
+  .kpi span { color:var(--muted); font-size:11px; }
+  h3 { margin:16px 0 8px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600; }
+  .dates { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  input[type=date], select { width:100%; background:var(--card); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:7px 8px; margin-bottom:8px; font-family:inherit; }
+  .chips { display:flex; gap:6px; }
+  .chip { flex:1; text-align:center; padding:7px 0; border-radius:8px; background:var(--card); border:1px solid var(--line); cursor:pointer; user-select:none; }
+  .chip.on { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  .slider { display:flex; align-items:center; gap:8px; margin-top:8px; color:var(--muted); }
+  .slider input { flex:1; accent-color:var(--accent); }
+  .row { padding:6px 8px; border-radius:8px; cursor:pointer; }
+  .row:hover { background:var(--card); }
+  .row .t { display:flex; justify-content:space-between; gap:8px; }
+  .row .t b { white-space:nowrap; }
+  .bar { height:4px; border-radius:2px; margin-top:5px; background:linear-gradient(90deg,#3b82f6,#22d3ee,#a3e635,#facc15,#ef4444); }
+  .legend { height:8px; border-radius:4px; margin-top:6px; background:linear-gradient(90deg,#3b4cc0,#00c2ff,#7cff6b,#ffd400,#ff2d2d); }
+  .legend + div { display:flex; justify-content:space-between; color:var(--muted); font-size:11px; margin-top:3px; }
+  .tiles-dark { filter: invert(1) hue-rotate(200deg) brightness(0.8) contrast(0.95) saturate(0.3); }
+  .tiles-light { filter: grayscale(0.85) brightness(1.04) contrast(0.92); }
+  .leaflet-tooltip { background:#111827; color:#fff; border:none; border-radius:6px; box-shadow:0 2px 8px rgba(0,0,0,.4); }
+  .leaflet-popup-content-wrapper { border-radius:10px; }
+  .leaflet-control-zoom a { border-radius:6px !important; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="side">
+    <div class="head"><h1>Заказы · Алматы</h1><button class="btn" id="theme">☀</button></div>
+
+    <div class="kpis">
+      <div class="kpi"><b id="kTotal">…</b><span>заказов</span></div>
+      <div class="kpi small"><b id="kDist">—</b><span>топ-район</span></div>
+      <div class="kpi small"><b id="kStreet">—</b><span>топ-улица</span></div>
+    </div>
+
+    <h3>Период</h3>
+    <div class="dates"><input type="date" id="from"><input type="date" id="to"></div>
+    <h3>Район</h3>
+    <select id="district"><option value="">Все районы</option></select>
+
+    <h3>Отображение</h3>
+    <div class="chips">
+      <div class="chip on" id="mHeat">Тепло</div>
+      <div class="chip" id="mHex">Соты</div>
+      <div class="chip on" id="mPts">Точки</div>
+    </div>
+    <div class="slider">Тепло <input type="range" id="rad" min="10" max="45" value="22"></div>
+    <div class="slider">Соты&nbsp; <input type="range" id="hexSize" min="250" max="1500" step="50" value="500"></div>
+    <div class="legend"></div><div><span>меньше</span><span>больше заказов</span></div>
+
+    <h3>Районы</h3>
+    <div id="dList"></div>
+    <h3>Топ улиц</h3>
+    <div id="sList"></div>
+  </div>
+  <div id="map"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let ALL = [], dark = true;
+
+const map = L.map('map', { zoomControl: true }).setView([43.24, 76.92], 12);
+let tile;
+function setTile() {
+  if (tile) map.removeLayer(tile);
+  tile = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '© OpenStreetMap', className: dark ? 'tiles-dark' : 'tiles-light'
+  }).addTo(map);
+  tile.bringToBack();
+  document.body.classList.toggle('light', !dark);
+  $('theme').textContent = dark ? '☀' : '🌙';
+}
+setTile();
+
+const hexL = L.layerGroup().addTo(map);
+const heat = L.heatLayer([], { radius: 22, blur: 24, minOpacity: 0.3,
+  gradient: { 0.2: '#3b4cc0', 0.4: '#00c2ff', 0.6: '#7cff6b', 0.8: '#ffd400', 1.0: '#ff2d2d' } }).addTo(map);
+const ptsL = L.layerGroup().addTo(map);
+
+fetch('data.json?v=' + Date.now())
+  .then(r => { if (!r.ok) throw new Error('data.json: ' + r.status); return r.json(); })
+  .then(init)
+  .catch(e => { $('kTotal').textContent = '!'; alert('Не удалось загрузить data.json: ' + e.message); });
+
+function init(data) {
+  ALL = data.map(p => Object.assign({}, p, { r: String(p.r || '').replace(/^≈\s*/, '') || 'Не определён' }));
+  if (!ALL.length) { alert('data.json пуст. Выгрузите данные из таблицы и загрузите файл в репозиторий.'); return; }
+  Array.from(new Set(ALL.map(p => p.r))).sort().forEach(d => {
+    const o = document.createElement('option'); o.value = d; o.textContent = d; $('district').appendChild(o);
+  });
+  ['from', 'to', 'district', 'rad', 'hexSize'].forEach(id => $(id).addEventListener('input', render));
+  ['mHeat', 'mHex', 'mPts'].forEach(id => $(id).onclick = () => { $(id).classList.toggle('on'); render(); });
+  $('theme').onclick = () => { dark = !dark; setTile(); render(); };
+  setTimeout(() => map.invalidateSize(), 200);
+  render();
+}
+
+function render() {
+  const f = $('from').value, t = $('to').value, dist = $('district').value;
+  const data = ALL.filter(p => (!f || p.d >= f) && (!t || p.d <= t) && (!dist || p.r === dist));
+  const byD = group(data, p => p.r), byS = group(data.filter(p => p.s), p => p.s);
+
+  $('kTotal').textContent = data.length;
+  $('kDist').textContent = byD.length ? byD[0].key.replace(' район', '') : '—';
+  $('kStreet').textContent = byS.length ? byS[0].key : '—';
+
+  // тепло
+  heat.setOptions({ radius: +$('rad').value, blur: Math.round(+$('rad').value * 1.1) });
+  heat.setLatLngs(data.map(p => [p.lat, p.lng, 0.35]));
+  setVis(heat, $('mHeat').classList.contains('on'));
+
+  // точки
+  ptsL.clearLayers();
+  data.forEach(p => L.circleMarker([p.lat, p.lng], {
+    radius: 3, weight: 0, fillColor: dark ? '#ffffff' : '#1e293b', fillOpacity: dark ? 0.8 : 0.7
+  }).bindPopup('<b>' + esc(p.a) + '</b><br>' + esc(p.d) + ' · ' + esc(p.r)).addTo(ptsL));
+  setVis(ptsL, $('mPts').classList.contains('on'));
+
+  // соты
+  drawHex(data);
+
+  // списки
+  list('dList', byD, byD[0] ? byD[0].items.length : 1, g => { $('district').value = g.key; render(); fit(g.items); });
+  const top = byS.slice(0, 15);
+  list('sList', top, top[0] ? top[0].items.length : 1, g => fit(g.items));
+}
+
+function setVis(layer, on) {
+  if (on && !map.hasLayer(layer)) map.addLayer(layer);
+  if (!on && map.hasLayer(layer)) map.removeLayer(layer);
+}
+
+// ---- шестиугольные соты ----
+const RAMP = [[59,76,192], [0,194,255], [124,255,107], [255,212,0], [255,45,45]];
+function ramp(t) {
+  const x = Math.min(0.9999, Math.max(0, t)) * (RAMP.length - 1), i = Math.floor(x), k = x - i;
+  const c = RAMP[i].map((v, j) => Math.round(v + (RAMP[i + 1][j] - v) * k));
+  return 'rgb(' + c.join(',') + ')';
+}
+function hexRound(q, r) {
+  const x = q, z = r, y = -x - z;
+  let rx = Math.round(x), ry = Math.round(y), rz = Math.round(z);
+  const dx = Math.abs(rx - x), dy = Math.abs(ry - y), dz = Math.abs(rz - z);
+  if (dx > dy && dx > dz) rx = -ry - rz; else if (dy > dz) ry = -rx - rz; else rz = -rx - ry;
+  return [rx, rz];
+}
+function drawHex(data) {
+  hexL.clearLayers();
+  if (!$('mHex').classList.contains('on')) return;
+  const s = +$('hexSize').value, P = L.Projection.SphericalMercator, cells = {};
+  data.forEach(p => {
+    const m = P.project(L.latLng(p.lat, p.lng));
+    const ab = hexRound((Math.sqrt(3) / 3 * m.x - m.y / 3) / s, (2 / 3 * m.y) / s), k = ab.join(',');
+    const c = cells[k] = cells[k] || { q: ab[0], r: ab[1], n: 0, st: {} };
+    c.n++; if (p.s) c.st[p.s] = (c.st[p.s] || 0) + 1;
+  });
+  const arr = Object.keys(cells).map(k => cells[k]);
+  const max = Math.max.apply(null, arr.map(c => c.n).concat([1]));
+  arr.forEach(c => {
+    const cx = s * Math.sqrt(3) * (c.q + c.r / 2), cy = s * 1.5 * c.r, ring = [];
+    for (let i = 0; i < 6; i++) {
+      const a = Math.PI / 180 * (60 * i - 30);
+      ring.push(P.unproject(L.point(cx + s * Math.cos(a), cy + s * Math.sin(a))));
+    }
+    const t = c.n / max, ts = Object.keys(c.st).sort((a, b) => c.st[b] - c.st[a])[0];
+    L.polygon(ring, { color: dark ? '#fff' : '#334155', weight: 0.6, opacity: 0.2, fillColor: ramp(t), fillOpacity: 0.3 + 0.55 * t })
+      .bindTooltip('<b>' + c.n + '</b> заказ(ов)' + (ts ? '<br>' + esc(ts) : '')).addTo(hexL);
+  });
+}
+
+// ---- вспомогательное ----
+function group(arr, keyFn) {
+  const m = {};
+  arr.forEach(p => { const k = keyFn(p); (m[k] = m[k] || []).push(p); });
+  return Object.keys(m).map(k => ({ key: k, items: m[k] })).sort((a, b) => b.items.length - a.items.length);
+}
+function fit(items) {
+  map.fitBounds(L.latLngBounds(items.map(p => [p.lat, p.lng])), { maxZoom: 16, padding: [50, 50] });
+}
+function list(id, groups, max, onClick) {
+  const el = $(id); el.innerHTML = '';
+  groups.forEach(g => {
+    const d = document.createElement('div'); d.className = 'row';
+    d.innerHTML = '<div class="t"><span>' + esc(g.key) + '</span><b>' + g.items.length + '</b></div><div class="bar" style="width:' + Math.max(4, 100 * g.items.length / max) + '%"></div>';
+    d.onclick = () => onClick(g);
+    el.appendChild(d);
+  });
+}
+</script>
+</body>
+</html>
